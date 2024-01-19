@@ -405,7 +405,7 @@ def convert_oasst1_data(data_dir, output_dir, top_k_reply=None):
     output_path = os.path.join(output_dir, "oasst1_data.jsonl")
 
     # tranvers the conversation tree, and collect all valid sequences
-    def dfs(reply, messages, valid_sequences):
+    def dfs(reply, messages, valid_sequences, top_k_reply=None):
         if reply["deleted"]:
             return
         if reply["role"] == "assistant":
@@ -453,6 +453,75 @@ def convert_oasst1_data(data_dir, output_dir, top_k_reply=None):
                 fout.write(json.dumps({
                     "dataset": "oasst1",
                     "id": f"oasst1_{example_cnt}",
+                    "messages": sequence
+                }) + "\n")
+                example_cnt += 1
+
+def convert_oasst2_data(data_dir, output_dir, top_k_reply=None):
+    '''
+    For OASST1, because it's in a tree structure, where every user input might get multiple replies, 
+    we have to save every path from the root node to the assistant reply (including both leaf node and intemediate node).
+    This results in some of the messages being duplicated among different paths (instances).
+    You can set top_k_reply to control how many replies to consider when traversing the tree, which will consider the replies with 
+    the highest human-reviewed quality scores.
+    '''
+    os.makedirs(output_dir, exist_ok=True)
+    conversations = []
+    with open(os.path.join(data_dir, "2023-11-05_oasst2_ready.trees.jsonl"), "r") as fin:
+        for line in fin:
+            conversations.append(json.loads(line))
+
+    output_path = os.path.join(output_dir, "oasst2_data.jsonl")
+
+    # tranvers the conversation tree, and collect all valid sequences
+    def dfs(reply, messages, valid_sequences, top_k_reply=None):
+        if reply["deleted"]:
+            return
+        if reply["role"] == "assistant":
+            messages.append(
+                {"role": "assistant", "content": reply["text"]}
+            )
+            if not reply["replies"]:  # leaf node
+                valid_sequences.append(messages[:])
+            else:
+                child_replies = [child for child in reply["replies"] if not child["deleted"]]
+                for child in child_replies:
+                    if not "quality" in child["labels"]:
+                        child["labels"]["quality"] = {
+                            "value": 0.0,
+                            "count": 0,
+                        }
+                child_replies = child_replies if top_k_reply is None else sorted(child_replies, key=lambda x: x["labels"]["quality"]["value"], reverse=True)[:top_k_reply]
+                for child in child_replies:
+                    dfs(child, messages, valid_sequences)
+            messages.pop()
+        elif reply["role"] == "prompter":
+            messages.append(
+                {"role": "user", "content": reply["text"]}
+            )
+            child_replies = [child for child in reply["replies"] if not child["deleted"]]
+            for child in child_replies:
+                if not "quality" in child["labels"]:
+                    child["labels"]["quality"] = {
+                        "value": 0.0,
+                        "count": 0,
+                    }
+            child_replies = child_replies if top_k_reply is None else sorted(child_replies, key=lambda x: x["labels"]["quality"]["value"], reverse=True)[:top_k_reply]
+            for child in child_replies:
+                dfs(child, messages, valid_sequences)
+            messages.pop()
+        else:
+            raise ValueError(f"Unknown role: {reply['role']}")
+        
+    with open(output_path, "w") as fout:
+        example_cnt = 0
+        for _, conversation in enumerate(conversations):
+            valid_sequences = []
+            dfs(conversation["prompt"], [], valid_sequences)
+            for sequence in valid_sequences:
+                fout.write(json.dumps({
+                    "dataset": "oasst2",
+                    "id": f"oasst2_{example_cnt}",
                     "messages": sequence
                 }) + "\n")
                 example_cnt += 1
@@ -585,6 +654,37 @@ def convert_science_data(data_dir, output_dir, num_examples=None):
                     {"role": "user", "content": example["input"]},
                     {"role": "assistant", "content": example["output"]}
                 ],
+            }) + "\n")
+
+def convert_ultrachat_data(data_dir, output_dir, num_examples=None):
+    os.makedirs(output_dir, exist_ok=True)
+    all_examples = []
+
+    # Iterate through all .jsonl files
+    for file_name in os.listdir(data_dir):
+        if file_name.startswith("train_") and file_name.endswith(".jsonl"):
+            with open(os.path.join(data_dir, file_name), "r") as fin:
+                for line in fin:
+                    try:
+                        all_examples.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        print(f"Error decoding JSON in file, line: {line}")
+
+    if num_examples:
+        all_examples = random.sample(all_examples, k=num_examples)
+
+    output_path = os.path.join(output_dir, "ultrachat_data.jsonl")
+    with open(output_path, "w") as fout:
+        for idx, example in enumerate(all_examples):
+            messages = []
+            for message in example["data"]:
+                role = "user" if len(messages) % 2 == 0 else "assistant"
+                messages.append({"role": role, "content": message})
+                
+            fout.write(json.dumps({
+                "dataset": "ultrachat",
+                "id": f"ultrachat_{idx}",
+                "messages": messages,
             }) + "\n")
 
 
@@ -726,6 +826,13 @@ if __name__ == "__main__":
                 output_dir=os.path.join(args.output_dir, "tulu_v2", "oasst1_subset"), 
                 top_k_reply=1
             )
+            
+            convert_oasst2_data(
+                data_dir=os.path.join(args.raw_data_dir, "oasst2"), 
+                output_dir=os.path.join(args.output_dir, "tulu_v2", "oasst2_subset"), 
+                top_k_reply=1
+            )
+
             convert_lima_data(
                 data_dir=os.path.join(args.raw_data_dir, "lima"), 
                 output_dir=os.path.join(args.output_dir, "tulu_v2", "lima_subset"), 
@@ -770,6 +877,22 @@ if __name__ == "__main__":
                 output_dir=os.path.join(args.output_dir, "tulu_v2", "hard_coded_subset"),
                 repeat=10,
             )
+
+            convert_super_ni_data(
+                data_dir=os.path.join(args.raw_data_dir, "super_ni"), 
+                output_dir=os.path.join(args.output_dir, "tulu_v2", "super_ni_subset"),
+            )
+
+            convert_cot_data(
+                data_dir=os.path.join(args.raw_data_dir, "cot"), 
+                output_dir=os.path.join(args.output_dir, "tulu_v2", "cot_subset"),
+            )
+
+            convert_ultrachat_data(
+                data_dir=os.path.join(args.raw_data_dir, "cot"), 
+                output_dir=os.path.join(args.output_dir, "tulu_v2", "ultrachat_subset"),
+            )
+
             # merge all the subsets
             print("Merging all the subsets to create tulu v2...")
             all_subsets = [f for f in os.listdir(os.path.join(args.output_dir, "tulu_v2")) if f.endswith("_subset")]

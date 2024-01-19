@@ -1,4 +1,6 @@
 # check if there is $HF_TOKEN in the environment variables
+
+export HF_TOKEN="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"
 if [ -z "$HF_TOKEN" ]
 then
     echo "Warning: HuggingFace dataset LIMA requires permissive access."
@@ -44,6 +46,9 @@ echo "Downloading the OpenAssistant data (oasst1)..."
 wget -P data/raw_train/oasst1/ https://huggingface.co/datasets/OpenAssistant/oasst1/resolve/main/2023-04-12_oasst_ready.trees.jsonl.gz
 gzip -d data/raw_train/oasst1/2023-04-12_oasst_ready.trees.jsonl.gz
 
+echo "Downloading the OpenAssistant data (oasst2)..."
+wget -P data/raw_train/oasst2/ https://huggingface.co/datasets/OpenAssistant/oasst2/resolve/main/2023-11-05_oasst2_ready.trees.jsonl.gz
+gzip -d data/raw_train/oasst2/2023-11-05_oasst2_ready.trees.jsonl.gz
 
 echo "Downloading the code alpaca dataset..."
 wget -P data/raw_train/code_alpaca/ https://github.com/sahil280114/codealpaca/raw/master/data/code_alpaca_20k.json
@@ -99,5 +104,8 @@ echo "Downloading the HardCoded dataset..."
 wget -P data/raw_train/hard_coded/ https://beaker.org/api/v3/datasets/01HBS14BBV16K45MMFSYJR86CA/files/hard_coded_examples.xlsx
 
 
+
+
+
 echo "Processing datasets..."
-python open_instruct/reformat_datasets.py --raw_data_dir data/raw_train/ --output_dir data/processed/
+python open_instruct/reformat_datasets.py --raw_data_dir data/raw_train/ --output_dir data/processed/ --dataset tulu_v2
